@@ -763,7 +763,9 @@ static inline void mips_tc_wake(MIPSCPU *cpu, int tc)
 
     /* FIXME: TC reschedule.  */
     if (mips_vpe_active(c) && !mips_vpe_is_wfi(cpu)) {
+        qemu_mutex_lock_iothread();
         mips_vpe_wake(cpu);
+        qemu_mutex_unlock_iothread();
     }
 }
 
@@ -773,7 +775,9 @@ static inline void mips_tc_sleep(MIPSCPU *cpu, int tc)
 
     /* FIXME: TC reschedule.  */
     if (!mips_vpe_active(c)) {
+        qemu_mutex_lock_iothread();
         mips_vpe_sleep(cpu);
+        qemu_mutex_unlock_iothread();
     }
 }
 
@@ -1907,7 +1911,9 @@ void helper_mttc0_cause(CPUMIPSState *env, target_ulong arg1)
     int other_tc = env->CP0_VPEControl & (0xff << CP0VPECo_TargTC);
     CPUMIPSState *other = mips_cpu_map_tc(env, &other_tc);
 
+    qemu_mutex_lock_iothread();
     cpu_mips_store_cause(other, arg1);
+    qemu_mutex_unlock_iothread();
 }
 
 target_ulong helper_mftc0_epc(CPUMIPSState *env)
@@ -2566,6 +2572,7 @@ target_ulong helper_dvpe(CPUMIPSState *env)
     CPUState *other_cs = first_cpu;
     target_ulong prev = env->mvp->CP0_MVPControl;
 
+    qemu_mutex_lock_iothread();
     CPU_FOREACH(other_cs) {
         MIPSCPU *other_cpu = MIPS_CPU(other_cs);
         /* Turn off all VPEs except the one executing the dvpe.  */
@@ -2574,6 +2581,7 @@ target_ulong helper_dvpe(CPUMIPSState *env)
             mips_vpe_sleep(other_cpu);
         }
     }
+    qemu_mutex_unlock_iothread();
     return prev;
 }
 
@@ -2582,6 +2590,7 @@ target_ulong helper_evpe(CPUMIPSState *env)
     CPUState *other_cs = first_cpu;
     target_ulong prev = env->mvp->CP0_MVPControl;
 
+    qemu_mutex_lock_iothread();
     CPU_FOREACH(other_cs) {
         MIPSCPU *other_cpu = MIPS_CPU(other_cs);
 
@@ -2593,6 +2602,7 @@ target_ulong helper_evpe(CPUMIPSState *env)
             mips_vpe_wake(other_cpu); /* And wake it up.  */
         }
     }
+    qemu_mutex_unlock_iothread();
     return prev;
 }
 #endif /* !CONFIG_USER_ONLY */
@@ -2640,6 +2650,7 @@ target_ulong helper_dvp(CPUMIPSState *env)
     CPUState *other_cs = first_cpu;
     target_ulong prev = env->CP0_VPControl;
 
+    qemu_mutex_lock_iothread();
     if (!((env->CP0_VPControl >> CP0VPCtl_DIS) & 1)) {
         CPU_FOREACH(other_cs) {
             MIPSCPU *other_cpu = MIPS_CPU(other_cs);
@@ -2650,6 +2661,7 @@ target_ulong helper_dvp(CPUMIPSState *env)
         }
         env->CP0_VPControl |= (1 << CP0VPCtl_DIS);
     }
+    qemu_mutex_unlock_iothread();
     return prev;
 }
 
@@ -2658,6 +2670,7 @@ target_ulong helper_evp(CPUMIPSState *env)
     CPUState *other_cs = first_cpu;
     target_ulong prev = env->CP0_VPControl;
 
+    qemu_mutex_lock_iothread();
     if ((env->CP0_VPControl >> CP0VPCtl_DIS) & 1) {
         CPU_FOREACH(other_cs) {
             MIPSCPU *other_cpu = MIPS_CPU(other_cs);
@@ -2669,6 +2682,7 @@ target_ulong helper_evp(CPUMIPSState *env)
         }
         env->CP0_VPControl &= ~(1 << CP0VPCtl_DIS);
     }
+    qemu_mutex_unlock_iothread();
     return prev;
 }
 #endif /* !CONFIG_USER_ONLY */
