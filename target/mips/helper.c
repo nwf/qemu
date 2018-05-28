@@ -1762,6 +1762,19 @@ static inline ram_addr_t v2r_addr(CPUMIPSState *env, target_ulong vaddr, MMUAcce
     return ram_addr;
 }
 
+static inline void cheri_linkedflag_invalidate(hwaddr paddr, int32_t size)
+{
+    CPUState *other_cs = first_cpu;
+
+    CPU_FOREACH(other_cs) {
+        MIPSCPU *other_cpu = MIPS_CPU(other_cs);
+        CPUMIPSState *other_env = &other_cpu->env;
+        /* Check RAM address to see if the linkedflag needs to be reset. */
+        if (paddr <= other_env->lladdr && other_env->lladdr < paddr + size)
+            other_env->linkedflag = 0;
+    }
+}
+
 void cheri_tag_invalidate(CPUMIPSState *env, target_ulong vaddr, int32_t size, uintptr_t pc)
 {
     // This must not cross a page boundary since we are only translating once!
@@ -1807,9 +1820,7 @@ void cheri_tag_invalidate(CPUMIPSState *env, target_ulong vaddr, int32_t size, u
 
     cheri_tag_phys_invalidate(ram_addr, size);
 
-    /* Check RAM address to see if the linkedflag needs to be reset. */
-    if (env->lladdr > paddr && env->lladdr < paddr + size)
-        env->linkedflag = 0;
+    cheri_linkedflag_invalidate(paddr, size);
 }
 
 void cheri_tag_phys_invalidate(ram_addr_t ram_addr, ram_addr_t len)
@@ -1864,11 +1875,14 @@ static uint8_t *cheri_tag_new_tagblk(uint64_t tag)
 
 void cheri_tag_set(CPUMIPSState *env, target_ulong vaddr, int reg, uintptr_t pc)
 {
+    hwaddr paddr;
     ram_addr_t ram_addr;
     uint64_t tag;
     uint8_t *tagblk;
 
-    ram_addr = v2r_addr(env, vaddr, MMU_DATA_CAP_STORE, reg, pc);
+    MemoryRegion* mr = NULL;
+    paddr = v2p_addr(env, vaddr, MMU_DATA_CAP_STORE, reg, pc);
+    ram_addr = p2r_addr(env, paddr, &mr);
     if (ram_addr == -1LL)
         return;
 
@@ -1886,9 +1900,7 @@ void cheri_tag_set(CPUMIPSState *env, target_ulong vaddr, int reg, uintptr_t pc)
     }
     tagblk[CAP_TAGBLK_IDX(tag)] = 1;
 
-    /* Check RAM address to see if the linkedflag needs to be reset. */
-    if (ram_addr == p2r_addr(env, env->lladdr, NULL))
-        env->linkedflag = 0;
+    cheri_linkedflag_invalidate(paddr, CAP_SIZE);
 }
 
 static uint8_t *
@@ -1967,12 +1979,14 @@ void cheri_tag_set_m128(CPUMIPSState *env, target_ulong vaddr, int reg,
 {
     uint64_t tag;
     uint64_t *tagblk64;
-    ram_addr_t ram_addr;
+    hwaddr paddr;
 
     // If the data is untagged we shouldn't get a tlb fault
     uint8_t *tagblk = cheri_tag_get_block(env, vaddr,
 					  tagbit ? MMU_DATA_CAP_STORE : MMU_DATA_STORE,
-					  reg, 0, pc, ret_paddr, &ram_addr, &tag);
+					  reg, 0, pc, &paddr, NULL, &tag);
+    if (ret_paddr)
+        *ret_paddr = paddr;
     if (tagblk == NULL) {
         /* Allocated a tag block. */
         tagblk = cheri_tag_new_tagblk(tag);
@@ -1982,12 +1996,7 @@ void cheri_tag_set_m128(CPUMIPSState *env, target_ulong vaddr, int reg,
     tagblk64++;
     *tagblk64 = length;
 
-
-    /* Check RAM address to see if the linkedflag needs to be reset. */
-    if (ram_addr == p2r_addr(env, env->lladdr, NULL))
-        env->linkedflag = 0;
-
-    return;
+    cheri_linkedflag_invalidate(paddr, CAP_SIZE);
 }
 
 int cheri_tag_get_m128(CPUMIPSState *env, target_ulong vaddr, int reg,
