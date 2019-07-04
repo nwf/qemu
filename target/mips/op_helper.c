@@ -2590,7 +2590,6 @@ target_ulong helper_evpe(CPUMIPSState *env)
     CPUState *other_cs = first_cpu;
     target_ulong prev = env->mvp->CP0_MVPControl;
 
-    qemu_mutex_lock_iothread();
     CPU_FOREACH(other_cs) {
         MIPSCPU *other_cpu = MIPS_CPU(other_cs);
 
@@ -2602,7 +2601,6 @@ target_ulong helper_evpe(CPUMIPSState *env)
             mips_vpe_wake(other_cpu); /* And wake it up.  */
         }
     }
-    qemu_mutex_unlock_iothread();
     return prev;
 }
 #endif /* !CONFIG_USER_ONLY */
